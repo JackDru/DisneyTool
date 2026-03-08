@@ -640,279 +640,273 @@ tab1, tab2, tab3 = st.tabs(["WEEKLY BRIEF", "GRAPHS", "SEARCH"])
 # TAB 1 — WEEKLY BRIEF
 # ══════════════════════════════════════════════════════════════════════════════
 with tab1:
-    st.markdown('<div class="content-area">', unsafe_allow_html=True)
+    _l, _mid, _r = st.columns([1, 6, 1])
+    with _mid:
+        if df.empty:
+            st.markdown('<div class="empty-state">No insights yet — run the scorer first</div>', unsafe_allow_html=True)
+        else:
+            WEEK_OPTIONS = get_week_options(df)
+            WEEK_LABELS  = [w[0] for w in WEEK_OPTIONS]
 
-    if df.empty:
-        st.markdown('<div class="empty-state">No insights yet — run the scorer first</div>', unsafe_allow_html=True)
-    else:
-        WEEK_OPTIONS = get_week_options(df)
-        WEEK_LABELS  = [w[0] for w in WEEK_OPTIONS]
+            if WEEK_LABELS:
+                st.markdown('<div class="week-label">Select Week</div>', unsafe_allow_html=True)
+                selected_week_label = st.selectbox(
+                    "Select Week",
+                    WEEK_LABELS,
+                    index=0,
+                    key="week_select",
+                    label_visibility="collapsed"
+                )
 
-        if WEEK_LABELS:
-            st.markdown('<div class="week-label">Select Week</div>', unsafe_allow_html=True)
-            selected_week_label = st.selectbox(
-                "Select Week",
-                WEEK_LABELS,
-                index=0,
-                key="week_select",
-                label_visibility="collapsed"
-            )
+                selected_week = next((w for w in WEEK_OPTIONS if w[0] == selected_week_label), WEEK_OPTIONS[0])
+                week_start = pd.Timestamp(selected_week[1], tz='UTC')
+                week_end   = pd.Timestamp(selected_week[2], tz='UTC') + pd.Timedelta(hours=23, minutes=59)
 
-            selected_week = next((w for w in WEEK_OPTIONS if w[0] == selected_week_label), WEEK_OPTIONS[0])
-            week_start = pd.Timestamp(selected_week[1], tz='UTC')
-            week_end   = pd.Timestamp(selected_week[2], tz='UTC') + pd.Timedelta(hours=23, minutes=59)
+                date_col = 'date_posted' if ('date_posted' in df.columns and df['date_posted'].notna().any()) else None
+                if date_col:
+                    week_df = df[(df[date_col] >= week_start) & (df[date_col] <= week_end)].copy()
+                else:
+                    week_df = df.copy()
 
-            date_col = 'date_posted' if ('date_posted' in df.columns and df['date_posted'].notna().any()) else None
-            if date_col:
-                week_df = df[(df[date_col] >= week_start) & (df[date_col] <= week_end)].copy()
-            else:
-                week_df = df.copy()
+                if week_df.empty:
+                    week_df = df.copy()
+                    st.markdown('<div style="font-size:11px;color:#444;margin-bottom:16px;margin-top:-8px">No data for this week — showing all insights</div>', unsafe_allow_html=True)
 
-            if week_df.empty:
-                week_df = df.copy()
-                st.markdown('<div style="font-size:11px;color:#444;margin-bottom:16px;margin-top:-8px">No data for this week — showing all insights</div>', unsafe_allow_html=True)
+                week_df = week_df.sort_values('weighted_score', ascending=False)
 
-            week_df = week_df.sort_values('weighted_score', ascending=False)
+                summary_html = build_exec_summary(week_df, selected_week_label)
+                if summary_html:
+                    st.markdown(f"""
+                    <div class="exec-summary">
+                        <div class="exec-summary-label">Executive Summary</div>
+                        <div class="exec-summary-text">{summary_html}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-            summary_html = build_exec_summary(week_df, selected_week_label)
-            if summary_html:
+                top5 = week_df.drop_duplicates(subset=['id']).head(5) if 'id' in week_df.columns else week_df.head(5)
+
                 st.markdown(f"""
-                <div class="exec-summary">
-                    <div class="exec-summary-label">Executive Summary</div>
-                    <div class="exec-summary-text">{summary_html}</div>
+                <div class="section-header">
+                    <div class="section-title">Top Recommendations</div>
+                    <div class="section-sub">{len(top5)} highest-signal findings · {selected_week_label}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            top5 = week_df.drop_duplicates(subset=['id']).head(5) if 'id' in week_df.columns else week_df.head(5)
-
-            st.markdown(f"""
-            <div class="section-header">
-                <div class="section-title">Top Recommendations</div>
-                <div class="section-sub">{len(top5)} highest-signal findings · {selected_week_label}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            for rank, (_, row) in enumerate(top5.iterrows(), start=1):
-                render_card(row, rank=rank)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+                for rank, (_, row) in enumerate(top5.iterrows(), start=1):
+                    render_card(row, rank=rank)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — GRAPHS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
-    st.markdown('<div class="content-area">', unsafe_allow_html=True)
+    _l, _mid, _r = st.columns([1, 6, 1])
+    with _mid:
+        if df.empty:
+            st.markdown('<div class="empty-state">No data yet</div>', unsafe_allow_html=True)
+        else:
+            # ── Row 1: Category + Experience bars ────────────────────────────────
+            r1c1, r1c2 = st.columns(2)
 
-    if df.empty:
-        st.markdown('<div class="empty-state">No data yet</div>', unsafe_allow_html=True)
-    else:
-        # ── Row 1: Category + Experience bars ────────────────────────────────
-        r1c1, r1c2 = st.columns(2)
-
-        with r1c1:
-            st.markdown('<div class="chart-card"><div class="chart-title">Insights by Category</div>', unsafe_allow_html=True)
-            cat_counts = df['category_tag'].value_counts().reset_index()
-            cat_counts.columns = ['category', 'count']
-            cat_counts['category'] = cat_counts['category'].str.replace('_', ' ').str.title()
-            fig_cat = px.bar(cat_counts, x='count', y='category', orientation='h',
-                         color_discrete_sequence=['#C41E3A'])
-            fig_cat.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=260,
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, title='', color='#555'),
-                font=dict(family='DM Sans', size=11, color='#555'), showlegend=False)
-            fig_cat.update_traces(marker_line_width=0)
-            st.plotly_chart(fig_cat, use_container_width=True, config={'displayModeBar': False})
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with r1c2:
-            st.markdown('<div class="chart-card"><div class="chart-title">Insights by Experience</div>', unsafe_allow_html=True)
-            exp_counts = df['experience_tag'].value_counts().reset_index()
-            exp_counts.columns = ['experience', 'count']
-            fig_exp = px.bar(exp_counts, x='count', y='experience', orientation='h',
-                          color_discrete_sequence=['#444444'])
-            fig_exp.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=260,
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, title='', color='#555'),
-                font=dict(family='DM Sans', size=11, color='#555'), showlegend=False)
-            fig_exp.update_traces(marker_line_width=0)
-            st.plotly_chart(fig_exp, use_container_width=True, config={'displayModeBar': False})
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── Row 2: Top upvoted insights bar ──────────────────────────────────
-        st.markdown('<div class="chart-card"><div class="chart-title">Top 10 Most Community-Validated Insights</div>', unsafe_allow_html=True)
-        top_upv = df.nlargest(10, 'upvotes')[['recommendation','upvotes','category_tag']].copy()
-        top_upv['short'] = top_upv['recommendation'].str[:60] + '...'
-        top_upv['category_tag'] = top_upv['category_tag'].str.replace('_',' ').str.title()
-        fig_top = px.bar(top_upv, x='upvotes', y='short', orientation='h',
-                         color='category_tag',
-                         color_discrete_sequence=['#C41E3A','#8B1520','#5A0A14','#3A0A0A','#444','#666'])
-        fig_top.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=320,
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, title=''),
-            yaxis=dict(showgrid=False, title='', color='#666', autorange='reversed'),
-            font=dict(family='DM Sans', size=10, color='#666'),
-            legend=dict(font=dict(size=9, color='#555'), title=''),
-            showlegend=True)
-        fig_top.update_traces(marker_line_width=0)
-        st.plotly_chart(fig_top, use_container_width=True, config={'displayModeBar': False})
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── Row 3: Subreddit source breakdown ────────────────────────────────
-        st.markdown('<div class="chart-card"><div class="chart-title">Source Subreddit Breakdown</div>', unsafe_allow_html=True)
-        try:
-            raw_result = supabase.table("raw_comments").select("subreddit").execute()
-            if raw_result.data:
-                raw_df = pd.DataFrame(raw_result.data)
-                sub_counts = raw_df['subreddit'].value_counts().reset_index()
-                sub_counts.columns = ['subreddit', 'count']
-                sub_counts['subreddit'] = 'r/' + sub_counts['subreddit'].astype(str)
-                fig_sub = px.bar(sub_counts, x='count', y='subreddit', orientation='h',
-                                 color_discrete_sequence=['#333333'])
-                fig_sub.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=max(160, len(sub_counts)*36),
+            with r1c1:
+                st.markdown('<div class="chart-card"><div class="chart-title">Insights by Category</div>', unsafe_allow_html=True)
+                cat_counts = df['category_tag'].value_counts().reset_index()
+                cat_counts.columns = ['category', 'count']
+                cat_counts['category'] = cat_counts['category'].str.replace('_', ' ').str.title()
+                fig_cat = px.bar(cat_counts, x='count', y='category', orientation='h',
+                             color_discrete_sequence=['#C41E3A'])
+                fig_cat.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=260,
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                     yaxis=dict(showgrid=False, title='', color='#555'),
                     font=dict(family='DM Sans', size=11, color='#555'), showlegend=False)
-                fig_sub.update_traces(marker_line_width=0)
-                st.plotly_chart(fig_sub, use_container_width=True, config={'displayModeBar': False})
-        except Exception as e:
-            st.markdown(f'<div style="color:#444;font-size:12px">Could not load subreddit data: {e}</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+                fig_cat.update_traces(marker_line_width=0)
+                st.plotly_chart(fig_cat, use_container_width=True, config={'displayModeBar': False})
+                st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── Row 4: Category drift ─────────────────────────────────────────────
-        st.markdown('<div class="chart-card"><div class="chart-title">Category Drift — This Week vs Prior Period</div>', unsafe_allow_html=True)
-        if 'date_added' in df.columns and df['date_added'].notna().any():
-            now         = pd.Timestamp.now(tz='UTC')
-            week_ago    = now - pd.Timedelta(days=7)
-            prior_start = now - pd.Timedelta(days=14)
-            this_week   = df[df['date_added'] >= week_ago]
-            prior_week  = df[(df['date_added'] >= prior_start) & (df['date_added'] < week_ago)]
-            if not this_week.empty and not prior_week.empty:
-                this_counts  = this_week['category_tag'].value_counts()
-                prior_counts = prior_week['category_tag'].value_counts()
-                all_cats     = set(this_counts.index) | set(prior_counts.index)
-                drift_data   = [{'category': c.replace('_',' ').title(),
-                                  'This Week': this_counts.get(c,0),
-                                  'Prior Week': prior_counts.get(c,0),
-                                  'delta': this_counts.get(c,0) - prior_counts.get(c,0)}
-                                 for c in all_cats]
-                drift_df = pd.DataFrame(drift_data).sort_values('delta', ascending=False)
-                fig_drift = go.Figure()
-                fig_drift.add_trace(go.Bar(name='This Week', x=drift_df['category'],
-                                           y=drift_df['This Week'], marker_color='#C41E3A'))
-                fig_drift.add_trace(go.Bar(name='Prior Week', x=drift_df['category'],
-                                           y=drift_df['Prior Week'], marker_color='#2A2A2A'))
-                fig_drift.update_layout(barmode='group', margin=dict(l=0,r=0,t=0,b=0), height=220,
+            with r1c2:
+                st.markdown('<div class="chart-card"><div class="chart-title">Insights by Experience</div>', unsafe_allow_html=True)
+                exp_counts = df['experience_tag'].value_counts().reset_index()
+                exp_counts.columns = ['experience', 'count']
+                fig_exp = px.bar(exp_counts, x='count', y='experience', orientation='h',
+                              color_discrete_sequence=['#444444'])
+                fig_exp.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=260,
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                    xaxis=dict(showgrid=False, color='#444'),
-                    yaxis=dict(showgrid=False, zeroline=False, color='#444'),
-                    font=dict(family='DM Sans', size=11, color='#555'),
-                    legend=dict(font=dict(size=10, color='#555')))
-                st.plotly_chart(fig_drift, use_container_width=True, config={'displayModeBar': False})
-                for _, r in drift_df[drift_df['delta'] >= 3].iterrows():
-                    st.markdown(f"""<div class="drift-alert">
-                        <div class="drift-alert-title">⚠ {r['category']} spiked this week</div>
-                        <div class="drift-alert-body">{int(r['This Week'])} insights vs {int(r['Prior Week'])} last period</div>
-                    </div>""", unsafe_allow_html=True)
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, title='', color='#555'),
+                    font=dict(family='DM Sans', size=11, color='#555'), showlegend=False)
+                fig_exp.update_traces(marker_line_width=0)
+                st.plotly_chart(fig_exp, use_container_width=True, config={'displayModeBar': False})
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            # ── Row 2: Top upvoted insights bar ──────────────────────────────────
+            st.markdown('<div class="chart-card"><div class="chart-title">Top 10 Most Community-Validated Insights</div>', unsafe_allow_html=True)
+            top_upv = df.nlargest(10, 'upvotes')[['recommendation','upvotes','category_tag']].copy()
+            top_upv['short'] = top_upv['recommendation'].str[:60] + '...'
+            top_upv['category_tag'] = top_upv['category_tag'].str.replace('_',' ').str.title()
+            fig_top = px.bar(top_upv, x='upvotes', y='short', orientation='h',
+                             color='category_tag',
+                             color_discrete_sequence=['#C41E3A','#8B1520','#5A0A14','#3A0A0A','#444','#666'])
+            fig_top.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=320,
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, title=''),
+                yaxis=dict(showgrid=False, title='', color='#666', autorange='reversed'),
+                font=dict(family='DM Sans', size=10, color='#666'),
+                legend=dict(font=dict(size=9, color='#555'), title=''),
+                showlegend=True)
+            fig_top.update_traces(marker_line_width=0)
+            st.plotly_chart(fig_top, use_container_width=True, config={'displayModeBar': False})
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ── Row 3: Subreddit source breakdown ────────────────────────────────
+            st.markdown('<div class="chart-card"><div class="chart-title">Source Subreddit Breakdown</div>', unsafe_allow_html=True)
+            try:
+                raw_result = supabase.table("raw_comments").select("subreddit").execute()
+                if raw_result.data:
+                    raw_df = pd.DataFrame(raw_result.data)
+                    sub_counts = raw_df['subreddit'].value_counts().reset_index()
+                    sub_counts.columns = ['subreddit', 'count']
+                    sub_counts['subreddit'] = 'r/' + sub_counts['subreddit'].astype(str)
+                    fig_sub = px.bar(sub_counts, x='count', y='subreddit', orientation='h',
+                                     color_discrete_sequence=['#333333'])
+                    fig_sub.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=max(160, len(sub_counts)*36),
+                        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, title='', color='#555'),
+                        font=dict(family='DM Sans', size=11, color='#555'), showlegend=False)
+                    fig_sub.update_traces(marker_line_width=0)
+                    st.plotly_chart(fig_sub, use_container_width=True, config={'displayModeBar': False})
+            except Exception as e:
+                st.markdown(f'<div style="color:#444;font-size:12px">Could not load subreddit data: {e}</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ── Row 4: Category drift ─────────────────────────────────────────────
+            st.markdown('<div class="chart-card"><div class="chart-title">Category Drift — This Week vs Prior Period</div>', unsafe_allow_html=True)
+            if 'date_added' in df.columns and df['date_added'].notna().any():
+                now         = pd.Timestamp.now(tz='UTC')
+                week_ago    = now - pd.Timedelta(days=7)
+                prior_start = now - pd.Timedelta(days=14)
+                this_week   = df[df['date_added'] >= week_ago]
+                prior_week  = df[(df['date_added'] >= prior_start) & (df['date_added'] < week_ago)]
+                if not this_week.empty and not prior_week.empty:
+                    this_counts  = this_week['category_tag'].value_counts()
+                    prior_counts = prior_week['category_tag'].value_counts()
+                    all_cats     = set(this_counts.index) | set(prior_counts.index)
+                    drift_data   = [{'category': c.replace('_',' ').title(),
+                                      'This Week': this_counts.get(c,0),
+                                      'Prior Week': prior_counts.get(c,0),
+                                      'delta': this_counts.get(c,0) - prior_counts.get(c,0)}
+                                     for c in all_cats]
+                    drift_df = pd.DataFrame(drift_data).sort_values('delta', ascending=False)
+                    fig_drift = go.Figure()
+                    fig_drift.add_trace(go.Bar(name='This Week', x=drift_df['category'],
+                                               y=drift_df['This Week'], marker_color='#C41E3A'))
+                    fig_drift.add_trace(go.Bar(name='Prior Week', x=drift_df['category'],
+                                               y=drift_df['Prior Week'], marker_color='#2A2A2A'))
+                    fig_drift.update_layout(barmode='group', margin=dict(l=0,r=0,t=0,b=0), height=220,
+                        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                        xaxis=dict(showgrid=False, color='#444'),
+                        yaxis=dict(showgrid=False, zeroline=False, color='#444'),
+                        font=dict(family='DM Sans', size=11, color='#555'),
+                        legend=dict(font=dict(size=10, color='#555')))
+                    st.plotly_chart(fig_drift, use_container_width=True, config={'displayModeBar': False})
+                    for _, r in drift_df[drift_df['delta'] >= 3].iterrows():
+                        st.markdown(f"""<div class="drift-alert">
+                            <div class="drift-alert-title">⚠ {r['category']} spiked this week</div>
+                            <div class="drift-alert-body">{int(r['This Week'])} insights vs {int(r['Prior Week'])} last period</div>
+                        </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown('<div style="color:#333;font-size:12px;padding:12px 0">Drift detection activates after two weeks of data.</div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div style="color:#333;font-size:12px;padding:12px 0">Drift detection activates after two weeks of data.</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div style="color:#333;font-size:12px;padding:12px 0">Date data not available.</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown('<div style="color:#333;font-size:12px;padding:12px 0">Date data not available.</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── Row 5: All insights filtered feed ────────────────────────────────
-        st.markdown('<div class="section-header" style="margin-top:24px"><div class="section-title">All Insights</div></div>', unsafe_allow_html=True)
-        fc1, fc2, fc3 = st.columns([2, 2, 1])
-        with fc1:
-            exp_filter = st.multiselect("Experience",
-                sorted(df['experience_tag'].dropna().unique().tolist()),
-                default=sorted(df['experience_tag'].dropna().unique().tolist()), key="intel_exp")
-        with fc2:
-            cat_filter = st.multiselect("Category",
-                sorted(df['category_tag'].dropna().unique().tolist()),
-                default=sorted(df['category_tag'].dropna().unique().tolist()), key="intel_cat")
-        with fc3:
-            feat_only = st.checkbox("Featured only", value=False, key="intel_feat")
+            # ── Row 5: All insights filtered feed ────────────────────────────────
+            st.markdown('<div class="section-header" style="margin-top:24px"><div class="section-title">All Insights</div></div>', unsafe_allow_html=True)
+            fc1, fc2, fc3 = st.columns([2, 2, 1])
+            with fc1:
+                exp_filter = st.multiselect("Experience",
+                    sorted(df['experience_tag'].dropna().unique().tolist()),
+                    default=sorted(df['experience_tag'].dropna().unique().tolist()), key="intel_exp")
+            with fc2:
+                cat_filter = st.multiselect("Category",
+                    sorted(df['category_tag'].dropna().unique().tolist()),
+                    default=sorted(df['category_tag'].dropna().unique().tolist()), key="intel_cat")
+            with fc3:
+                feat_only = st.checkbox("Featured only", value=False, key="intel_feat")
 
-        filtered = df.copy()
-        if exp_filter: filtered = filtered[filtered['experience_tag'].isin(exp_filter)]
-        if cat_filter: filtered = filtered[filtered['category_tag'].isin(cat_filter)]
-        if feat_only:  filtered = filtered[filtered['featured'] == True]
+            filtered = df.copy()
+            if exp_filter: filtered = filtered[filtered['experience_tag'].isin(exp_filter)]
+            if cat_filter: filtered = filtered[filtered['category_tag'].isin(cat_filter)]
+            if feat_only:  filtered = filtered[filtered['featured'] == True]
 
-        st.markdown(f'<div style="font-size:11px;color:#444;margin-bottom:14px">{len(filtered)} results</div>', unsafe_allow_html=True)
-        for _, row in filtered.iterrows():
-            render_card(row)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:11px;color:#444;margin-bottom:14px">{len(filtered)} results</div>', unsafe_allow_html=True)
+            for _, row in filtered.iterrows():
+                render_card(row)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — SEARCH
 # ══════════════════════════════════════════════════════════════════════════════
 with tab3:
-    st.markdown('<div class="content-area">', unsafe_allow_html=True)
+    _l, _mid, _r = st.columns([1, 6, 1])
+    with _mid:
+        if df.empty:
+            st.markdown('<div class="empty-state">No data yet</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="week-label">Search Insights</div>', unsafe_allow_html=True)
+            search_query = st.text_input(
+                "Search",
+                placeholder='Try: "Polynesian Hotel", "wait time", "Genie+", "broken"...',
+                key="proj_search",
+                label_visibility="collapsed"
+            )
 
-    if df.empty:
-        st.markdown('<div class="empty-state">No data yet</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="week-label">Search Insights</div>', unsafe_allow_html=True)
-        search_query = st.text_input(
-            "Search",
-            placeholder='Try: "Polynesian Hotel", "wait time", "Genie+", "broken"...',
-            key="proj_search",
-            label_visibility="collapsed"
-        )
+            def search_insights(df, query):
+                if not query or not query.strip():
+                    return df.copy()
+                q = query.lower().strip()
+                mask = pd.Series([False] * len(df), index=df.index)
+                for col in ['recommendation', 'source_quote', 'category_tag',
+                            'experience_tag', 'username', 'post_title']:
+                    if col in df.columns:
+                        mask |= df[col].astype(str).str.lower().str.contains(q, na=False)
+                if 'project_tags' in df.columns:
+                    def tag_match(val):
+                        if not val: return False
+                        if isinstance(val, list): return any(q in str(t).lower() for t in val)
+                        return q in str(val).lower()
+                    mask |= df['project_tags'].apply(tag_match)
+                if 'supporting_quotes' in df.columns:
+                    def sq_match(val):
+                        if not val: return False
+                        if isinstance(val, list): return any(q in str(t).lower() for t in val)
+                        return q in str(val).lower()
+                    mask |= df['supporting_quotes'].apply(sq_match)
+                return df[mask].copy()
 
-        def search_insights(df, query):
-            if not query or not query.strip():
-                return df.copy()
-            q = query.lower().strip()
-            mask = pd.Series([False] * len(df), index=df.index)
-            for col in ['recommendation', 'source_quote', 'category_tag',
-                        'experience_tag', 'username', 'post_title']:
-                if col in df.columns:
-                    mask |= df[col].astype(str).str.lower().str.contains(q, na=False)
-            if 'project_tags' in df.columns:
-                def tag_match(val):
-                    if not val: return False
-                    if isinstance(val, list): return any(q in str(t).lower() for t in val)
-                    return q in str(val).lower()
-                mask |= df['project_tags'].apply(tag_match)
-            if 'supporting_quotes' in df.columns:
-                def sq_match(val):
-                    if not val: return False
-                    if isinstance(val, list): return any(q in str(t).lower() for t in val)
-                    return q in str(val).lower()
-                mask |= df['supporting_quotes'].apply(sq_match)
-            return df[mask].copy()
+            search_results = search_insights(df, search_query)
 
-        search_results = search_insights(df, search_query)
+            rc1, rc2 = st.columns([3, 1])
+            with rc1:
+                if search_query:
+                    st.markdown(f'<div style="font-size:12px;color:#C41E3A;margin:8px 0 16px">{len(search_results)} result{"s" if len(search_results) != 1 else ""} for &ldquo;{search_query}&rdquo;</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div style="font-size:11px;color:#444;margin:8px 0 16px">{len(search_results)} insights — enter a search term above to filter</div>', unsafe_allow_html=True)
+            with rc2:
+                sort_by = st.selectbox("Sort by", ['Upvotes', 'Most Recent', 'Quality Score'],
+                                       key="proj_sort", label_visibility="collapsed")
 
-        rc1, rc2 = st.columns([3, 1])
-        with rc1:
-            if search_query:
-                st.markdown(f'<div style="font-size:12px;color:#C41E3A;margin:8px 0 16px">{len(search_results)} result{"s" if len(search_results) != 1 else ""} for &ldquo;{search_query}&rdquo;</div>', unsafe_allow_html=True)
+            if sort_by == 'Upvotes':
+                search_results = search_results.sort_values('upvotes', ascending=False)
+            elif sort_by == 'Most Recent':
+                date_col = 'date_posted' if 'date_posted' in search_results.columns else 'date_added'
+                search_results = search_results.sort_values(date_col, ascending=False, na_position='last')
             else:
-                st.markdown(f'<div style="font-size:11px;color:#444;margin:8px 0 16px">{len(search_results)} insights — enter a search term above to filter</div>', unsafe_allow_html=True)
-        with rc2:
-            sort_by = st.selectbox("Sort by", ['Upvotes', 'Most Recent', 'Quality Score'],
-                                   key="proj_sort", label_visibility="collapsed")
+                search_results = search_results.sort_values('insight_quality_score', ascending=False)
 
-        if sort_by == 'Upvotes':
-            search_results = search_results.sort_values('upvotes', ascending=False)
-        elif sort_by == 'Most Recent':
-            date_col = 'date_posted' if 'date_posted' in search_results.columns else 'date_added'
-            search_results = search_results.sort_values(date_col, ascending=False, na_position='last')
-        else:
-            search_results = search_results.sort_values('insight_quality_score', ascending=False)
-
-        if search_results.empty:
-            st.markdown('<div class="empty-state">No results found — try a different search term</div>', unsafe_allow_html=True)
-        else:
-            for _, row in search_results.iterrows():
-                render_card(row)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+            if search_results.empty:
+                st.markdown('<div class="empty-state">No results found — try a different search term</div>', unsafe_allow_html=True)
+            else:
+                for _, row in search_results.iterrows():
+                    render_card(row)

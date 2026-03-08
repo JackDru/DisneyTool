@@ -389,12 +389,26 @@ st.markdown("""
 # ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_insights():
-    result = supabase.table("insights")\
-        .select("*")\
-        .order("weighted_score", desc=True)\
-        .execute()
-    if result.data:
-        df = pd.DataFrame(result.data)
+    """Load all insights; paginate to avoid Supabase 1000-row default cap."""
+    page_size = 1000
+    all_rows = []
+    page = 0
+    while True:
+        start = page * page_size
+        end = start + page_size - 1
+        result = supabase.table("insights")\
+            .select("*")\
+            .order("weighted_score", desc=True)\
+            .range(start, end)\
+            .execute()
+        if not result.data:
+            break
+        all_rows.extend(result.data)
+        if len(result.data) < page_size:
+            break
+        page += 1
+    if all_rows:
+        df = pd.DataFrame(all_rows)
         for col in ['date_posted', 'date_added']:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)

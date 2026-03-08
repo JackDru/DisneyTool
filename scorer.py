@@ -371,7 +371,7 @@ def calculate_percentile(upvotes, all_upvotes):
 def process_unscored_comments():
     print("\nPulling unprocessed comments...")
 
-     all_comments = []
+    all_comments = []
     page = 0
     page_size = 1000
     while True:

@@ -550,4 +550,14 @@ def process_unscored_comments():
     if processed_count > 0:
         print(f"Signal rate: {round(insights_found/processed_count*100,1)}%")
 
-process_unscored_comments()
+import time
+
+while True:
+    process_unscored_comments()
+    result = supabase.table("raw_comments").select("id", count="exact").eq("processed", False).execute()
+    remaining = result.count or 0
+    if remaining == 0:
+        print("All comments processed!")
+        break
+    print(f"\n{remaining} still unprocessed — retrying in 10 seconds...")
+    time.sleep(10)

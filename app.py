@@ -7,6 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 from collections import Counter
+import html as html_module
+import re
 
 load_dotenv()
 
@@ -493,6 +495,27 @@ def get_week_options(df):
     return weeks
 
 
+# ── Helpers: HTML/markdown in DB to readable plain text ───────────────────────
+def html_to_readable(s):
+    """Turn stored HTML or escaped text into plain readable text for display."""
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return ""
+    s = str(s).strip()
+    if not s:
+        return ""
+    s = html_module.unescape(s)
+    s = re.sub(r'<[^>]+>', '', s)
+    return s.strip()
+
+
+def safe_display(s, default="—"):
+    """Readable plain text, escaped for safe use inside HTML."""
+    out = html_to_readable(s)
+    if not out:
+        return default
+    return html_module.escape(out)
+
+
 # ── Inline styles ─────────────────────────────────────────────────────────────
 S = {
     'card':         'background:#141414;border:1px solid #1E1E1E;border-left:3px solid #333;padding:18px 22px;margin-bottom:10px;',
@@ -523,8 +546,8 @@ def render_card(row, rank=None):
 
     rank_html = f'<div style="{S["rank"]}">#{rank}</div>' if rank else ""
 
-    exp_tag  = f'<span style="{S["tag_base"]}{S["tag_exp"]}">{row.get("experience_tag","—")}</span>'
-    cat_tag  = f'<span style="{S["tag_base"]}{S["tag_cat"]}">{str(row.get("category_tag","—")).replace("_"," ").title()}</span>'
+    exp_tag  = f'<span style="{S["tag_base"]}{S["tag_exp"]}">{safe_display(row.get("experience_tag"), "—")}</span>'
+    cat_tag  = f'<span style="{S["tag_base"]}{S["tag_cat"]}">{safe_display(str(row.get("category_tag","—")).replace("_"," ").title(), "—")}</span>'
     feat_tag = f'<span style="{S["tag_base"]}{S["tag_feat"]}">◆ Featured</span>' if row.get('featured') else ""
 
     proj_html = ""
@@ -538,7 +561,9 @@ def render_card(row, rank=None):
             projects = []
         for p in projects:
             if p:
-                proj_html += f'<span style="{S["tag_base"]}{S["tag_proj"]}">{p}</span>'
+                disp = safe_display(p, "")
+                if disp:
+                    proj_html += f'<span style="{S["tag_base"]}{S["tag_proj"]}">{disp}</span>'
 
     link_html = ""
     if row.get('comment_url'):
@@ -564,7 +589,7 @@ def render_card(row, rank=None):
     if is_high_tier:
         context_html = ""
         if row.get('context_paragraph'):
-            context_html = f'<div style="{S["context"]}">{row["context_paragraph"]}</div>'
+            context_html = f'<div style="{S["context"]}">{safe_display(row["context_paragraph"])}</div>'
 
         quotes_html = ""
         raw_sq = row.get('supporting_quotes')
@@ -576,14 +601,14 @@ def render_card(row, rank=None):
             else:
                 sq_list = []
             if sq_list:
-                bullets = "".join([f'<div style="{S["quote"]}">"{q}"</div>' for q in sq_list[:3]])
+                bullets = "".join([f'<div style="{S["quote"]}">"{safe_display(q)}"</div>' for q in sq_list[:3]])
                 quotes_html = f'<div style="{S["quotes"]}">{bullets}</div>'
 
         st.markdown(f"""
         <div style="{card_style}">
             {rank_html}
             <div style="{S['top']}">
-                <div style="{S['rec']}">{row.get('recommendation','—')}</div>
+                <div style="{S['rec']}">{safe_display(row.get('recommendation'), '—')}</div>
                 {link_html}
             </div>
             {context_html}
@@ -598,15 +623,15 @@ def render_card(row, rank=None):
     else:
         detail_html = ""
         if row.get('context_bullet'):
-            detail_html += f'<div style="{S["bullet"]}">→ {row["context_bullet"]}</div>'
+            detail_html += f'<div style="{S["bullet"]}">→ {safe_display(row["context_bullet"])}</div>'
         if row.get('source_quote'):
-            detail_html += f'<div style="{S["source_q"]}">"{row["source_quote"]}"</div>'
+            detail_html += f'<div style="{S["source_q"]}">"{safe_display(row["source_quote"])}"</div>'
 
         st.markdown(f"""
         <div style="{card_style}">
             {rank_html}
             <div style="{S['top']}">
-                <div style="{S['rec']}">{row.get('recommendation','—')}</div>
+                <div style="{S['rec']}">{safe_display(row.get('recommendation'), '—')}</div>
                 {link_html}
             </div>
             {detail_html}
@@ -639,16 +664,18 @@ def build_exec_summary(week_df, week_label):
     cat_str = ", ".join([c.replace('_',' ').title() for c in top_cats])
     top_upv = int(top_upvote.get('upvotes', 0) or 0) if top_upvote is not None else 0
     top_rec = top_upvote.get('recommendation', '') if top_upvote is not None else ''
+    top_rec_plain = html_to_readable(top_rec)
+    top_rec_snippet = html_module.escape(top_rec_plain[:120] + ("..." if len(top_rec_plain) > 120 else ""))
 
     summary = f"""
 <p><strong style="color:#E8E8E4">{total} insight{"s" if total != 1 else ""}</strong> surfaced 
 for the week of <strong style="color:#E8E8E4">{week_label}</strong>.</p>
 
 <p>The highest-volume categories were <strong style="color:#E8E8E4">{cat_str}</strong>.
-{"The most-discussed area was <strong style='color:#E8E8E4'>" + top_proj + "</strong>." if top_proj else ""}</p>
+{"The most-discussed area was <strong style='color:#E8E8E4'>" + safe_display(top_proj, "") + "</strong>." if top_proj else ""}</p>
 
 <p>The top community-validated insight drew <strong style="color:#C41E3A">▲ {top_upv:,} upvotes</strong>: 
-<em style="color:#777">"{top_rec[:120]}{"..." if len(top_rec) > 120 else ""}"</em></p>
+<em style="color:#777">"{top_rec_snippet}"</em></p>
 """
     return summary
 

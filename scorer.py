@@ -189,44 +189,52 @@ def filter_batch(comments):
         )
 
     prompt = f"""
-You are a senior strategy analyst briefing Disney's executive leadership.
-Your ONLY job right now is to decide which comments contain genuine
-operational or strategic intelligence that would change what a Disney VP
-does on Monday morning.
+You are a senior strategy analyst briefing the Parks CEO. Your ONLY job is to
+decide which comments are CEO-level actionable: so specific that the CEO
+could read it and know exactly what to fix, where, and have the authority
+to do it — no further investigation needed.
 
-You are extremely selective. Approve 1 in 20 comments at most.
+TARGET: Approve roughly 1 in 30 to 1 in 40 comments (~3% pass rate). When in
+doubt, REJECT. Only the most useful, specific, and immediately actionable
+comments pass. Most comments must be marked is_insightful: false.
 
-THE CORE TEST:
-"If I showed this to a Disney VP, would they know exactly what
-operational or strategic action to take, and where?"
-If the answer is anything other than an immediate yes — reject it.
+THE CEO TEST (all must be true to pass):
+- "If the Parks CEO read this one comment, would they know exactly which
+  system, location, or team to fix and what concrete action to take?"
+- The fix is within Disney's control (operations, staffing, design, pricing).
+- No extra research or "looking into" is required — the comment itself
+  names the cause and the fix.
 
-HARD DISQUALIFIERS — reject instantly if any are true:
+HARD DISQUALIFIERS — reject if ANY are true:
 
-1. VIRAL STORY: Entertaining, relatable, funny, or emotionally resonant
-   but not actionable. Bathroom stories, parenting fails, funny moments
-   — stories, not intelligence.
+1. VAGUE: Could apply to many places. No specific attraction, land, resort,
+   ride, or named system. Generic "they should improve X" without where/how.
 
-2. GUEST BEHAVIOR PROBLEM: Root cause is other guests, not Disney's
-   systems, staffing, or design.
+2. GUEST BEHAVIOR: Root cause is other guests, not Disney's systems or staff.
 
-3. BANNED RECOMMENDATION WORDS: If the only honest recommendation starts
-   with Investigate, Enhance, Consider, Review, Look into, or Improve
-   — reject. These mean the comment lacks specificity.
+3. BANNED PHRASES: Recommendation is only "investigate", "look into", "consider",
+   "review", "enhance", "improve" — reject. These mean no concrete action.
 
-4. OBVIOUS: Disney already knows and tracks this. Long waits, crowds,
-   expensive food — known. Reject unless the comment reveals a specific
-   cause, location, time, or system failure Disney may not have isolated.
+4. OBVIOUS / ALREADY KNOWN: Crowds, long waits, expensive food, "Disney is
+   expensive" — reject unless it names a specific failure (e.g. which ride
+   broke down when, which line had no shade where).
 
-5. ONE-TIME INCIDENT: Single bad experience with no systemic signal.
+5. ONE-OFF: Single bad experience with no pattern or systemic signal.
 
-6. NO CLEAR FIX: No operational solution Disney could implement.
+6. STORY NOT INTEL: Funny, emotional, or relatable but not actionable.
+   Bathroom stories, parenting moments, rants without operational detail.
 
-WHAT QUALIFIES — all must be true:
-- Names a specific system, location, attraction, or staff role
-- Problem caused by Disney's design, staffing, or operations
-- There is a concrete fix Disney could implement
-- A Disney ops manager would know exactly what to go look at
+7. NO CLEAR FIX: Problem described but no implementable solution Disney
+   could execute (staffing, design, process, pricing).
+
+WHAT QUALIFIES (all must be true):
+- Names a specific location, attraction, system, or role (e.g. "Lightning
+  Lane at Space Mountain", "mobile order at Cosmic Rewind", "front-desk
+  at Polynesian").
+- Cause is Disney's design, staffing, or operations — not guests or luck.
+- A concrete fix is implied or stated (add staff here, fix this queue,
+  change this policy at this place).
+- CEO or VP could assign it to a team and they would know what to do.
 
 Return ONLY a valid JSON array, one object per comment:
 [
@@ -242,7 +250,7 @@ Comments to analyze:
 {comment_list}
 
 Return ONLY the JSON array. No preamble, no markdown, no explanation.
-Expect to mark most comments is_insightful: false.
+Mark most comments is_insightful: false. Aim for ~3% pass rate.
 """
 
     for attempt in range(3):
@@ -280,46 +288,47 @@ def writeup_batch(comments, high_tier=False):
 
     if high_tier:
         detail_instructions = """
-OUTPUT FORMAT:
+OUTPUT FORMAT (CEO briefing — exact fix, exact location):
 
-recommendation: A razor-sharp headline naming the exact fix, the exact
-location, and the exact problem. Starts with a concrete action verb
-(Deploy, Restore, Redesign, Restaff, Reprice, Add, Remove, Fix).
-Never starts with Investigate, Enhance, Consider, Review, or Improve.
+recommendation: One line the CEO can act on. Must name: (1) exact location
+or system (e.g. "Lightning Lane at Space Mountain", "Polynesian front desk"),
+(2) exact problem, (3) concrete action verb (Deploy, Restore, Restaff, Add,
+Remove, Fix, Reprice). Never: Investigate, Enhance, Consider, Review, Improve.
 
-context_paragraph: 3-5 sentences that read like a VP briefing note.
-Explain what is specifically happening, what the root cause appears to be,
-what the guest impact is, and why this matters strategically. Reference
-specific details from the comment. No filler. No generic observations.
+context_paragraph: 3-5 sentences, VP briefing style. What is specifically
+happening, root cause, guest impact, why it matters. Specific details only —
+no filler. A VP could assign this to a team after reading it.
 
-supporting_quotes: 2-3 direct quotes under 15 words each that are
-specific and striking — operational observations, not emotional reactions.
+supporting_quotes: 2-3 short direct quotes (under 15 words each): operational
+observations, not emotional reactions.
 
 context_bullet: null
 source_quote: null
 """
     else:
         detail_instructions = """
-OUTPUT FORMAT:
+OUTPUT FORMAT (CEO-actionable — exact fix, exact location):
 
-recommendation: A razor-sharp headline naming the exact fix, the exact
-location, and the exact problem. Starts with a concrete action verb.
-Never starts with Investigate, Enhance, Consider, Review, or Improve.
+recommendation: One line: exact location/system + problem + action verb
+(Deploy, Restore, Restaff, Add, Remove, Fix). Never: Investigate, Consider,
+Review, Improve.
 
-context_bullet: One sentence naming the specific root cause or operational
-detail that makes this finding actionable.
+context_bullet: One sentence with the specific root cause or operational
+detail that makes this actionable.
 
-source_quote: The single most operationally specific quote from the
-comment under 15 words.
+source_quote: Single most operationally specific quote from the comment,
+under 15 words.
 
 context_paragraph: null
 supporting_quotes: []
 """
 
     prompt = f"""
-You are writing up pre-approved insightful comments for Disney's executive
-leadership. These comments have already passed a quality filter — your job
-is ONLY to write the recommendation and supporting detail.
+You are writing up pre-approved comments for the Parks CEO. Each comment
+has already passed a strict filter — it is specific and actionable. Your job
+is to turn it into a briefing line the CEO can act on: exact fix, exact
+location, no vagueness. Write as if every one could be in the "top five of
+the week."
 
 Every comment you receive IS insightful. Write up all of them.
 

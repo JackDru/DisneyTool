@@ -543,6 +543,22 @@ WEEK_OPTIONS = get_week_options()
 WEEK_LABELS  = [w[0] for w in WEEK_OPTIONS]
 
 
+def fmt_text(s, default="—"):
+    """Convert stored HTML/escaped text into safe, readable inline text."""
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return default
+    text = str(s)
+    # First unescape entities like &lt; &gt; &amp;
+    text = html_module.unescape(text)
+    # Strip any HTML tags
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.strip()
+    if not text:
+        return default
+    # Escape again so remaining <, &, etc. render as text
+    return html_module.escape(text)
+
+
 # ── Render card ───────────────────────────────────────────────────────────────
 def render_card(row, rank=None):
     featured_class = "featured" if row.get('featured') else ""
@@ -552,8 +568,11 @@ def render_card(row, rank=None):
 
     rank_html = f'<div class="insight-number">#{rank}</div>' if rank else ""
 
-    exp_tag  = f'<span class="tag tag-experience">{row.get("experience_tag","—")}</span>'
-    cat_tag  = f'<span class="tag tag-category">{str(row.get("category_tag","—")).replace("_"," ").title()}</span>'
+    exp_label = row.get("experience_tag", "—")
+    cat_label = str(row.get("category_tag", "—")).replace("_", " ").title()
+
+    exp_tag  = f'<span class="tag tag-experience">{fmt_text(exp_label, "—")}</span>'
+    cat_tag  = f'<span class="tag tag-category">{fmt_text(cat_label, "—")}</span>'
     sent_tag = f'<span class="tag tag-sentiment-{sent_class}">{sent_class}</span>'
     feat_tag = '<span class="tag tag-featured">◆ Featured</span>' if row.get('featured') else ""
 
@@ -568,7 +587,7 @@ def render_card(row, rank=None):
             projects = []
         for p in projects:
             if p:
-                proj_html += f'<span class="tag tag-project">{p}</span>'
+                proj_html += f'<span class="tag tag-project">{fmt_text(p, "")}</span>'
 
     link_html = ""
     if row.get('comment_url'):
@@ -596,7 +615,9 @@ def render_card(row, rank=None):
         # ── HIGH TIER: headline + context paragraph + supporting quotes ──────
         context_html = ""
         if row.get('context_paragraph'):
-            context_html = f'<div class="context-paragraph">{row["context_paragraph"]}</div>'
+            para = fmt_text(row["context_paragraph"], "")
+            if para:
+                context_html = f'<div class="context-paragraph">{para}</div>'
 
         quotes_html = ""
         raw_sq = row.get('supporting_quotes')
@@ -608,14 +629,18 @@ def render_card(row, rank=None):
             else:
                 sq_list = []
             if sq_list:
-                bullets = "".join([f'<div class="support-quote">"{q}"</div>' for q in sq_list[:3]])
+                bullets = ""
+                for q in sq_list[:3]:
+                    qt = fmt_text(q, "")
+                    if qt:
+                        bullets += f'<div class="support-quote">"{qt}"</div>'
                 quotes_html = f'<div class="support-quotes">{bullets}</div>'
 
         st.markdown(f"""
         <div class="insight-card featured {sent_class}">
             {rank_html}
             <div class="insight-top">
-                <div class="insight-recommendation">{row.get('recommendation','—')}</div>
+                <div class="insight-recommendation">{fmt_text(row.get('recommendation'), '—')}</div>
                 {link_html}
             </div>
             {context_html}
@@ -631,9 +656,13 @@ def render_card(row, rank=None):
         # ── STANDARD TIER: headline + context bullet + key quote ─────────────
         detail_html = ""
         if row.get('context_bullet'):
-            detail_html += f'<div class="standard-bullet">→ {row["context_bullet"]}</div>'
+            cb = fmt_text(row["context_bullet"], "")
+            if cb:
+                detail_html += f'<div class="standard-bullet">→ {cb}</div>'
         if row.get('source_quote'):
-            detail_html += f'<div class="standard-bullet standard-quote">"{row["source_quote"]}"</div>'
+            sq = fmt_text(row["source_quote"], "")
+            if sq:
+                detail_html += f'<div class="standard-bullet standard-quote">"{sq}"</div>'
         if detail_html:
             detail_html = f'<div class="standard-details">{detail_html}</div>'
 
@@ -641,7 +670,7 @@ def render_card(row, rank=None):
         <div class="insight-card {featured_class} {sent_class}">
             {rank_html}
             <div class="insight-top">
-                <div class="insight-recommendation">{row.get('recommendation','—')}</div>
+                <div class="insight-recommendation">{fmt_text(row.get('recommendation'), '—')}</div>
                 {link_html}
             </div>
             {detail_html}
@@ -674,7 +703,10 @@ def build_exec_summary(week_df, week_label):
     top3 = week_df.sort_values('upvotes', ascending=False).head(3)
     top3_recs = []
     for _, r in top3.iterrows():
-        rec  = re.sub(r'<[^>]+>', '', str(r.get('recommendation', '') or '')).strip()
+        raw_rec = str(r.get('recommendation', '') or '')
+        # Unescape any HTML entities then strip tags for clean text
+        raw_rec = html_module.unescape(raw_rec)
+        rec  = re.sub(r'<[^>]+>', '', raw_rec).strip()
         upv  = int(r.get('upvotes', 0) or 0)
         cat  = str(r.get('category_tag', '')).replace('_', ' ').title()
         proj = ''

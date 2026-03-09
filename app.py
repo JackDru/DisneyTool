@@ -7,6 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 from collections import Counter
+import html as html_module
+import re
 
 load_dotenv()
 
@@ -461,22 +463,12 @@ st.markdown("""
 # ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_insights():
-    all_rows = []
-    page = 0
-    page_size = 1000
-    while True:
-        result = supabase.table("insights")\
-            .select("*")\
-            .order("weighted_score", desc=True)\
-            .range(page * page_size, (page + 1) * page_size - 1)\
-            .execute()
-        batch = result.data or []
-        all_rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        page += 1
-    if all_rows:
-        df = pd.DataFrame(all_rows)
+    result = supabase.table("insights")\
+        .select("*")\
+        .order("weighted_score", desc=True)\
+        .execute()
+    if result.data:
+        df = pd.DataFrame(result.data)
         for col in ['date_posted', 'date_added']:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
@@ -496,9 +488,7 @@ raw_count = load_raw_count()
 if not df.empty:
     total       = len(df)
     featured    = len(df[df['featured'] == True]) if 'featured' in df.columns else 0
-    avg_score   = round(df['insight_quality_score'].mean(), 1) if 'insight_quality_score' in df.columns else 0
     signal_rate = round((total / raw_count * 100), 1) if raw_count > 0 else 0
-    neg_count   = len(df[df['sentiment'] == 'negative']) if 'sentiment' in df.columns else 0
 
     st.markdown(f"""
     <div class="metric-bar">
@@ -513,11 +503,6 @@ if not df.empty:
         </div>
         <div class="metric-divider"></div>
         <div class="metric-item">
-            <div class="metric-value">{avg_score}</div>
-            <div class="metric-label">Avg Quality</div>
-        </div>
-        <div class="metric-divider"></div>
-        <div class="metric-item">
             <div class="metric-value">{raw_count:,}</div>
             <div class="metric-label">Comments Scanned</div>
         </div>
@@ -525,11 +510,6 @@ if not df.empty:
         <div class="metric-item">
             <div class="metric-value">{signal_rate}%</div>
             <div class="metric-label">Signal Rate</div>
-        </div>
-        <div class="metric-divider"></div>
-        <div class="metric-item">
-            <div class="metric-value red">{neg_count}</div>
-            <div class="metric-label">Negative Flags</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -745,14 +725,14 @@ def build_exec_summary(week_df, week_label):
         if all_tags:
             proj_count = Counter(all_tags)
 
-    # Top 3 recommendations by upvotes
+    # Top 3 by upvotes
     top3 = week_df.sort_values('upvotes', ascending=False).head(3)
     top3_recs = []
     for _, r in top3.iterrows():
-        rec   = html_to_readable(r.get('recommendation', ''))
-        upv   = int(r.get('upvotes', 0) or 0)
-        cat   = str(r.get('category_tag', '')).replace('_', ' ').title()
-        proj  = ''
+        rec  = re.sub(r'<[^>]+>', '', str(r.get('recommendation', '') or '')).strip()
+        upv  = int(r.get('upvotes', 0) or 0)
+        cat  = str(r.get('category_tag', '')).replace('_', ' ').title()
+        proj = ''
         raw_p = r.get('project_tags')
         if raw_p:
             if isinstance(raw_p, list) and raw_p: proj = raw_p[0]

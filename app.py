@@ -7,8 +7,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 from collections import Counter
-import html as html_module
-import re
 
 load_dotenv()
 
@@ -389,26 +387,12 @@ st.markdown("""
 # ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=180)
 def load_insights():
-    """Load all insights; paginate to avoid Supabase 1000-row default cap."""
-    page_size = 1000
-    all_rows = []
-    page = 0
-    while True:
-        start = page * page_size
-        end = start + page_size - 1
-        result = supabase.table("insights")\
-            .select("*")\
-            .order("weighted_score", desc=True)\
-            .range(start, end)\
-            .execute()
-        if not result.data:
-            break
-        all_rows.extend(result.data)
-        if len(result.data) < page_size:
-            break
-        page += 1
-    if all_rows:
-        df = pd.DataFrame(all_rows)
+    result = supabase.table("insights")\
+        .select("*")\
+        .order("weighted_score", desc=True)\
+        .execute()
+    if result.data:
+        df = pd.DataFrame(result.data)
         for col in ['date_posted', 'date_added']:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
@@ -509,40 +493,6 @@ def get_week_options(df):
     return weeks
 
 
-# ── Helpers: HTML/markdown in DB to readable plain text ───────────────────────
-def html_to_readable(s):
-    """Turn stored HTML or escaped text into plain readable text for display."""
-    if s is None or (isinstance(s, float) and pd.isna(s)):
-        return ""
-    # Handle dict/list (e.g. from JSONB from Supabase)
-    if isinstance(s, (dict, list)):
-        s = str(s)
-    s = str(s).strip()
-    if not s:
-        return ""
-    # Unescape repeatedly in case of double-encoding (e.g. &amp;lt; from API)
-    for _ in range(5):
-        prev = s
-        s = html_module.unescape(s)
-        if s == prev:
-            break
-    # Literal backslash-n in string → real newline
-    s = s.replace("\\n", "\n").replace("\\r", "")
-    # Strip HTML tags (including multiline and attributes)
-    s = re.sub(r'<[^>]+>', '', s)
-    # Collapse multiple spaces/newlines to one space for plain display
-    s = re.sub(r'\s+', ' ', s).strip()
-    return s
-
-
-def safe_display(s, default="—"):
-    """Readable plain text, escaped for safe use inside HTML."""
-    out = html_to_readable(s)
-    if not out:
-        return default
-    return html_module.escape(out)
-
-
 # ── Inline styles ─────────────────────────────────────────────────────────────
 S = {
     'card':         'background:#141414;border:1px solid #1E1E1E;border-left:3px solid #333;padding:18px 22px;margin-bottom:10px;',
@@ -573,8 +523,8 @@ def render_card(row, rank=None):
 
     rank_html = f'<div style="{S["rank"]}">#{rank}</div>' if rank else ""
 
-    exp_tag  = f'<span style="{S["tag_base"]}{S["tag_exp"]}">{safe_display(row.get("experience_tag"), "—")}</span>'
-    cat_tag  = f'<span style="{S["tag_base"]}{S["tag_cat"]}">{safe_display(str(row.get("category_tag","—")).replace("_"," ").title(), "—")}</span>'
+    exp_tag  = f'<span style="{S["tag_base"]}{S["tag_exp"]}">{row.get("experience_tag","—")}</span>'
+    cat_tag  = f'<span style="{S["tag_base"]}{S["tag_cat"]}">{str(row.get("category_tag","—")).replace("_"," ").title()}</span>'
     feat_tag = f'<span style="{S["tag_base"]}{S["tag_feat"]}">◆ Featured</span>' if row.get('featured') else ""
 
     proj_html = ""
@@ -588,9 +538,7 @@ def render_card(row, rank=None):
             projects = []
         for p in projects:
             if p:
-                disp = safe_display(p, "")
-                if disp:
-                    proj_html += f'<span style="{S["tag_base"]}{S["tag_proj"]}">{disp}</span>'
+                proj_html += f'<span style="{S["tag_base"]}{S["tag_proj"]}">{p}</span>'
 
     link_html = ""
     if row.get('comment_url'):
@@ -616,7 +564,7 @@ def render_card(row, rank=None):
     if is_high_tier:
         context_html = ""
         if row.get('context_paragraph'):
-            context_html = f'<div style="{S["context"]}">{safe_display(row["context_paragraph"])}</div>'
+            context_html = f'<div style="{S["context"]}">{row["context_paragraph"]}</div>'
 
         quotes_html = ""
         raw_sq = row.get('supporting_quotes')
@@ -628,14 +576,14 @@ def render_card(row, rank=None):
             else:
                 sq_list = []
             if sq_list:
-                bullets = "".join([f'<div style="{S["quote"]}">"{safe_display(q)}"</div>' for q in sq_list[:3]])
+                bullets = "".join([f'<div style="{S["quote"]}">"{q}"</div>' for q in sq_list[:3]])
                 quotes_html = f'<div style="{S["quotes"]}">{bullets}</div>'
 
-        card_html = f"""
+        st.markdown(f"""
         <div style="{card_style}">
             {rank_html}
             <div style="{S['top']}">
-                <div style="{S['rec']}">{safe_display(row.get('recommendation'), '—')}</div>
+                <div style="{S['rec']}">{row.get('recommendation','—')}</div>
                 {link_html}
             </div>
             {context_html}
@@ -645,24 +593,20 @@ def render_card(row, rank=None):
                 {byline_html}
             </div>
         </div>
-        """
-        try:
-            st.html(card_html)
-        except AttributeError:
-            st.markdown(card_html, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
     else:
         detail_html = ""
         if row.get('context_bullet'):
-            detail_html += f'<div style="{S["bullet"]}">→ {safe_display(row["context_bullet"])}</div>'
+            detail_html += f'<div style="{S["bullet"]}">→ {row["context_bullet"]}</div>'
         if row.get('source_quote'):
-            detail_html += f'<div style="{S["source_q"]}">"{safe_display(row["source_quote"])}"</div>'
+            detail_html += f'<div style="{S["source_q"]}">"{row["source_quote"]}"</div>'
 
-        card_html = f"""
+        st.markdown(f"""
         <div style="{card_style}">
             {rank_html}
             <div style="{S['top']}">
-                <div style="{S['rec']}">{safe_display(row.get('recommendation'), '—')}</div>
+                <div style="{S['rec']}">{row.get('recommendation','—')}</div>
                 {link_html}
             </div>
             {detail_html}
@@ -671,11 +615,7 @@ def render_card(row, rank=None):
                 {byline_html}
             </div>
         </div>
-        """
-        try:
-            st.html(card_html)
-        except AttributeError:
-            st.markdown(card_html, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
 
 # ── Executive summary ─────────────────────────────────────────────────────────
@@ -683,10 +623,10 @@ def build_exec_summary(week_df, week_label):
     if week_df.empty:
         return None
 
-    total    = len(week_df)
-    top_cats = week_df['category_tag'].value_counts().head(3).index.tolist() if 'category_tag' in week_df.columns else []
-    top_upvote = week_df.sort_values('upvotes', ascending=False).iloc[0] if not week_df.empty else None
-    top_proj = None
+    total      = len(week_df)
+    top_cats   = week_df['category_tag'].value_counts().head(3).index.tolist() if 'category_tag' in week_df.columns else []
+    top_proj   = None
+    proj_count = {}
     if 'project_tags' in week_df.columns:
         all_tags = []
         for val in week_df['project_tags'].dropna():
@@ -694,23 +634,46 @@ def build_exec_summary(week_df, week_label):
             elif isinstance(val, str):
                 all_tags.extend([p.strip().strip('"') for p in val.strip('{}').split(',') if p.strip()])
         if all_tags:
-            top_proj = Counter(all_tags).most_common(1)[0][0]
+            proj_count = Counter(all_tags)
+            top_proj = proj_count.most_common(1)[0][0]
 
-    cat_str = ", ".join([c.replace('_',' ').title() for c in top_cats])
-    top_upv = int(top_upvote.get('upvotes', 0) or 0) if top_upvote is not None else 0
-    top_rec = top_upvote.get('recommendation', '') if top_upvote is not None else ''
-    top_rec_plain = html_to_readable(top_rec)
-    top_rec_snippet = html_module.escape(top_rec_plain[:120] + ("..." if len(top_rec_plain) > 120 else ""))
+    # Top 3 recommendations by upvotes
+    top3 = week_df.sort_values('upvotes', ascending=False).head(3)
+    top3_recs = []
+    for _, r in top3.iterrows():
+        rec  = r.get('recommendation', '')
+        upv  = int(r.get('upvotes', 0) or 0)
+        cat  = str(r.get('category_tag', '')).replace('_', ' ').title()
+        proj = ''
+        raw_p = r.get('project_tags')
+        if raw_p:
+            if isinstance(raw_p, list) and raw_p: proj = raw_p[0]
+            elif isinstance(raw_p, str): proj = raw_p.strip('{}').split(',')[0].strip().strip('"')
+        top3_recs.append((rec, upv, cat, proj))
+
+    # Top areas by mention count
+    top_areas = [p for p, _ in proj_count.most_common(4)] if proj_count else []
+    areas_str = ", ".join(top_areas[:4]) if top_areas else "General Disney"
+    cat_str   = ", ".join([c.replace('_', ' ').title() for c in top_cats])
+
+    # Build top 3 rec bullets
+    rec_bullets = ""
+    for rec, upv, cat, proj in top3_recs:
+        short_rec = rec[:100] + ('...' if len(rec) > 100 else '')
+        rec_bullets += f'<li style="margin-bottom:10px;color:#CCCCCC;"><strong style="color:#FFFFFF;">{short_rec}</strong> <span style="color:#555;font-size:11px;">— {cat}{(" · " + proj) if proj and proj != "General Disney" else ""} · ▲ {upv:,}</span></li>'
 
     summary = f"""
-<p><strong style="color:#E8E8E4">{total} insight{"s" if total != 1 else ""}</strong> surfaced 
-for the week of <strong style="color:#E8E8E4">{week_label}</strong>.</p>
+<p style="margin-bottom:16px;">
+<strong style="color:#E8E8E4;">{total} insight{"s" if total != 1 else ""}</strong> surfaced for 
+<strong style="color:#E8E8E4;">{week_label}</strong>. 
+The dominant signal categories were <strong style="color:#E8E8E4;">{cat_str}</strong>. 
+The most-discussed areas were <strong style="color:#E8E8E4;">{areas_str}</strong>.
+</p>
 
-<p>The highest-volume categories were <strong style="color:#E8E8E4">{cat_str}</strong>.
-{"The most-discussed area was <strong style='color:#E8E8E4'>" + safe_display(top_proj, "") + "</strong>." if top_proj else ""}</p>
-
-<p>The top community-validated insight drew <strong style="color:#C41E3A">▲ {top_upv:,} upvotes</strong>: 
-<em style="color:#777">"{top_rec_snippet}"</em></p>
+<p style="font-size:10px;font-weight:700;color:#C41E3A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:10px;">Top 3 by Community Validation</p>
+<ol style="padding-left:18px;margin-bottom:0;">
+{rec_bullets}
+</ol>
 """
     return summary
 

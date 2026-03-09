@@ -524,23 +524,39 @@ else:
     """, unsafe_allow_html=True)
 
 
-# ── Week definitions ──────────────────────────────────────────────────────────
-def get_week_options():
-    """Generate last 8 weeks as options."""
-    weeks = []
-    today = date.today()
-    # Find most recent Saturday as week end
-    days_since_sat = (today.weekday() + 2) % 7
-    week_end = today - timedelta(days=days_since_sat)
-    for i in range(8):
-        end   = week_end - timedelta(weeks=i)
-        start = end - timedelta(days=6)
-        label = f"{start.strftime('%#m/%#d/%y')} – {end.strftime('%#m/%#d/%y')}"
-        weeks.append((label, start, end))
-    return weeks
+# ── Week definitions — built from actual data ────────────────────────────────
+def get_week_options_from_df(df: pd.DataFrame):
+    """Build week options based on the actual date range present in the data."""
+    if df.empty:
+        return []
 
-WEEK_OPTIONS = get_week_options()
-WEEK_LABELS  = [w[0] for w in WEEK_OPTIONS]
+    date_col = None
+    for c in ["date_added", "date_posted"]:
+        if c in df.columns and df[c].notna().any():
+            date_col = c
+            break
+    if not date_col:
+        return []
+
+    dates = df[date_col].dropna()
+    if dates.empty:
+        return []
+
+    latest = dates.max().date()
+    earliest = dates.min().date()
+
+    # Anchor to Monday–Sunday weeks
+    week_start = latest - timedelta(days=latest.weekday())
+    week_end = week_start + timedelta(days=6)
+
+    weeks = []
+    while week_end >= earliest:
+        label = f"{week_start.strftime('%b %d, %Y')} – {week_end.strftime('%b %d, %Y')}"
+        weeks.append((label, week_start, week_end))
+        week_start -= timedelta(weeks=1)
+        week_end -= timedelta(weeks=1)
+
+    return weeks
 
 
 def fmt_text(s, default="—"):
@@ -636,7 +652,7 @@ def render_card(row, rank=None):
                         bullets += f'<div class="support-quote">"{qt}"</div>'
                 quotes_html = f'<div class="support-quotes">{bullets}</div>'
 
-        st.markdown(f"""
+        card_html = f"""
         <div class="insight-card featured {sent_class}">
             {rank_html}
             <div class="insight-top">
@@ -650,7 +666,11 @@ def render_card(row, rank=None):
                 {byline_html}
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """
+        try:
+            st.html(card_html)
+        except AttributeError:
+            st.markdown(card_html, unsafe_allow_html=True)
 
     else:
         # ── STANDARD TIER: headline + context bullet + key quote ─────────────
@@ -666,7 +686,7 @@ def render_card(row, rank=None):
         if detail_html:
             detail_html = f'<div class="standard-details">{detail_html}</div>'
 
-        st.markdown(f"""
+        card_html = f"""
         <div class="insight-card {featured_class} {sent_class}">
             {rank_html}
             <div class="insight-top">
@@ -679,7 +699,11 @@ def render_card(row, rank=None):
                 {byline_html}
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """
+        try:
+            st.html(card_html)
+        except AttributeError:
+            st.markdown(card_html, unsafe_allow_html=True)
 
 
 def build_exec_summary(week_df, week_label):
@@ -727,13 +751,16 @@ def build_exec_summary(week_df, week_label):
         rec_bullets += f'<li style="margin-bottom:10px;color:#CCCCCC;"><strong style="color:#FFFFFF;">{short_rec}</strong> <span style="color:#555;font-size:11px;">— {cat}{proj_part} · ▲ {upv:,}</span></li>'
 
     summary = f"""
-<p style="margin-bottom:16px;">
-<strong style="color:#E8E8E4;">{total} insight{"s" if total != 1 else ""}</strong> surfaced for
+<p style="margin-bottom:12px;">
+<strong style="color:#E8E8E4;">{total} CEO-level insight{"s" if total != 1 else ""}</strong> surfaced for
 <strong style="color:#E8E8E4;">{week_label}</strong>.
-Dominant categories: <strong style="color:#E8E8E4;">{cat_str}</strong>.
-Most-discussed areas: <strong style="color:#E8E8E4;">{areas_str}</strong>.
 </p>
-<p style="font-size:10px;font-weight:700;color:#C41E3A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:10px;">Top 3 by Community Validation</p>
+<p style="margin-bottom:10px;color:#CCCCCC;">
+Operational pain is concentrated in <strong style="color:#E8E8E4;">{cat_str or "—"}</strong>,
+primarily affecting <strong style="color:#E8E8E4;">{areas_str}</strong>.
+These are issues a VP could assign directly to an owner without further discovery.
+</p>
+<p style="font-size:10px;font-weight:700;color:#C41E3A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:8px;">This Week's Most Actionable Signals</p>
 <ol style="padding-left:18px;margin:0;">
 {rec_bullets}
 </ol>
@@ -755,6 +782,13 @@ with tab1:
         st.markdown('<div class="empty-state">No insights yet — run the scorer first</div>', unsafe_allow_html=True)
     else:
         # ── Week selector ─────────────────────────────────────────────────────
+        WEEK_OPTIONS = get_week_options_from_df(df)
+        WEEK_LABELS  = [w[0] for w in WEEK_OPTIONS]
+
+        if not WEEK_OPTIONS:
+            WEEK_OPTIONS = [("All Time", date.today(), date.today())]
+            WEEK_LABELS = [w[0] for w in WEEK_OPTIONS]
+
         st.markdown('<div class="week-label">Select Week</div>', unsafe_allow_html=True)
         selected_week_label = st.selectbox(
             "Select Week",
@@ -766,12 +800,17 @@ with tab1:
 
         # Find selected week bounds
         selected_week = next((w for w in WEEK_OPTIONS if w[0] == selected_week_label), WEEK_OPTIONS[0])
-        week_start = pd.Timestamp(selected_week[1], tz='UTC')
-        week_end   = pd.Timestamp(selected_week[2], tz='UTC') + pd.Timedelta(hours=23, minutes=59)
+        week_start = pd.Timestamp(selected_week[1], tz="UTC")
+        week_end   = pd.Timestamp(selected_week[2], tz="UTC") + pd.Timedelta(hours=23, minutes=59)
 
-        # Filter insights to selected week — use date_added (when we found it) or date_posted
-        if 'date_added' in df.columns and df['date_added'].notna().any():
-            week_df = df[(df['date_added'] >= week_start) & (df['date_added'] <= week_end)]
+        # Filter insights to selected week — prefer date_added, fallback to date_posted
+        date_col = None
+        for c in ["date_added", "date_posted"]:
+            if c in df.columns and df[c].notna().any():
+                date_col = c
+                break
+        if date_col:
+            week_df = df[(df[date_col] >= week_start) & (df[date_col] <= week_end)]
         else:
             week_df = df.copy()
 
@@ -1015,34 +1054,6 @@ with tab2:
         else:
             st.markdown('<div style="color:#333;font-size:12px;padding:12px 0">Date data not available.</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── Row 7: All insights filtered feed ────────────────────────────────
-        st.markdown('<div class="section-header" style="margin-top:24px"><div class="section-title">All Insights</div></div>', unsafe_allow_html=True)
-        fc1, fc2, fc3, fc4 = st.columns([2, 2, 2, 1])
-        with fc1:
-            exp_filter = st.multiselect("Experience",
-                sorted(df['experience_tag'].dropna().unique().tolist()),
-                default=sorted(df['experience_tag'].dropna().unique().tolist()), key="intel_exp")
-        with fc2:
-            cat_filter = st.multiselect("Category",
-                sorted(df['category_tag'].dropna().unique().tolist()),
-                default=sorted(df['category_tag'].dropna().unique().tolist()), key="intel_cat")
-        with fc3:
-            sent_filter = st.multiselect("Sentiment", ['positive','negative','neutral'],
-                default=['positive','negative','neutral'], key="intel_sent") if 'sentiment' in df.columns else []
-        with fc4:
-            feat_only = st.checkbox("Featured only", value=False, key="intel_feat")
-
-        filtered = df.copy()
-        if exp_filter:  filtered = filtered[filtered['experience_tag'].isin(exp_filter)]
-        if cat_filter:  filtered = filtered[filtered['category_tag'].isin(cat_filter)]
-        if sent_filter and 'sentiment' in filtered.columns:
-            filtered = filtered[filtered['sentiment'].isin(sent_filter)]
-        if feat_only:   filtered = filtered[filtered['featured'] == True]
-
-        st.markdown(f'<div style="font-size:11px;color:#444;margin-bottom:14px">{len(filtered)} results</div>', unsafe_allow_html=True)
-        for _, row in filtered.iterrows():
-            render_card(row)
 
     st.markdown('</div>', unsafe_allow_html=True)
 

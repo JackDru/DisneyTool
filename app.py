@@ -651,61 +651,6 @@ def render_card(row, rank=None):
             </div>
         </div>
         """, unsafe_allow_html=True)
-    # Supporting quotes
-    quotes_html = ""
-    raw_sq = row.get('supporting_quotes')
-    if raw_sq:
-        if isinstance(raw_sq, list):
-            sq_list = [q for q in raw_sq if q]
-        elif isinstance(raw_sq, str):
-            sq_list = [q.strip().strip('"') for q in raw_sq.strip('{}').split(',') if q.strip()]
-        else:
-            sq_list = []
-        if sq_list:
-            bullets = "".join([f'<div class="support-quote">"{q}"</div>' for q in sq_list[:3]])
-            quotes_html = f'<div class="support-quotes">{bullets}</div>'
-    if not quotes_html and row.get('source_quote'):
-        quotes_html = f'<div class="support-quotes"><div class="support-quote">"{row["source_quote"]}"</div></div>'
-
-    link_html = ""
-    if row.get('comment_url'):
-        link_html = f'<a class="insight-link" href="{row["comment_url"]}" target="_blank">View source →</a>'
-
-    # Byline
-    byline_parts = []
-    if row.get('username'):
-        byline_parts.append(f'u/{row["username"]}')
-
-    date_val = row.get('date_posted')
-    if date_val is None or (isinstance(date_val, float) and pd.isna(date_val)):
-        date_val = row.get('date_added')
-    if date_val is not None:
-        try:
-            d = pd.to_datetime(date_val, utc=True)
-            byline_parts.append(d.strftime('%b %d, %Y'))
-        except:
-            pass
-
-    upvotes = int(row.get('upvotes', 0) or 0)
-    upvote_html = f'<span class="upvote-count">▲ {upvotes:,}</span>'
-
-    byline_str  = " · ".join(byline_parts)
-    byline_html = f'<span class="insight-byline">{byline_str} &nbsp; {upvote_html}</span>'
-
-    st.markdown(f"""
-    <div class="insight-card {featured_class} {sent_class}">
-        {rank_html}
-        <div class="insight-top">
-            <div class="insight-recommendation">{row.get('recommendation','—')}</div>
-            {link_html}
-        </div>
-        {quotes_html}
-        <div class="insight-meta">
-            {exp_tag}{cat_tag}{sent_tag}{feat_tag}{proj_html}
-            {byline_html}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
 
 def build_exec_summary(week_df, week_label):

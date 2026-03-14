@@ -859,9 +859,15 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
 
-        seen_ids     = set()   # insight row IDs
-        seen_raw_ids = set()   # raw_comment_ids — ground-truth dedup
-        seen_recs    = set()   # recommendation text — catches paraphrase dupes
+        def rec_fingerprint(rec_text):
+            """First 6 words lowercased — catches paraphrases of the same finding."""
+            words = rec_text.lower().split()
+            return ' '.join(words[:6])
+
+        seen_ids          = set()   # insight row IDs
+        seen_raw_ids      = set()   # raw_comment_ids — ground-truth dedup
+        seen_recs         = set()   # exact recommendation text
+        seen_fingerprints = set()   # first-6-words fingerprint — catches paraphrases
         rank_counter = 1
 
         for _, row in week_df.iterrows():
@@ -890,6 +896,13 @@ with tab1:
             if rec_key in seen_recs:
                 continue
             seen_recs.add(rec_key)
+
+            # 4. Deduplicate by first-6-word fingerprint — catches paraphrases
+            # e.g. "Restore boat service...monorail strain" vs "...monorail traffic"
+            fingerprint = rec_fingerprint(rec_key)
+            if fingerprint in seen_fingerprints:
+                continue
+            seen_fingerprints.add(fingerprint)
 
             render_card(row, rank=rank_counter)
             rank_counter += 1
